@@ -25,8 +25,8 @@ function getLinksQuery () {
       streets->'name' AS street_name,
       streets->'dataset' AS street_dataset,
       dataset AS address_dataset,
-      validsince,
-      validuntil,
+      lower(validsince)::date AS validsince,
+      upper(validuntil)::date AS validuntil,
       data AS address_data,
       round(ST_Length(Geography(streets->>'shortest_line'))) AS line_length,
       ST_AsGeoJSON(streets->>'shortest_line', 6)::jsonb AS shortest_line,
@@ -101,6 +101,8 @@ function infer (config, dirs, tools, callback) {
           address,
           addressId,
           streetId,
+          validSince: row.validsince,
+          validUntil: row.validuntil,
           addressDataset: row.address_dataset,
           streetDataset: row.street_dataset,
           streetName: row.street_name,
@@ -131,11 +133,11 @@ function transform (config, dirs, tools, callback) {
           id: row.id,
           name: row.address,
           type: types.address,
-          validSince: row.validsince,
-          validUntil: row.validuntil,
+          validSince: new Date(row.validSince).getFullYear(),
+          validUntil: new Date(row.validUntil).getFullYear(),
           data: Object.assign(row.addressData, {
-            addressDataset: row.addressDataset,
-            streetDataset: row.streetDataset
+            addressId: row.addressId,
+            streetId: row.streetId
           }),
           geometry: row.addressGeometry
         }
