@@ -1,0 +1,8 @@
+{
+  "id": "building-inspector-nyc-streets",
+  "title": "Links Building Inspector addresses to historical streets",
+  "license": "CC0",
+  "description": "This module uses PostGIS to find the nearest historical street for Building Inspector addresses - for details, see <a href='http://bertspaan.nl/west-village/'>http://bertspaan.nl/west-village/</a>",
+  "author": "Bert Spaan",
+  "website": "http://spacetime.nypl.org/"
+}
