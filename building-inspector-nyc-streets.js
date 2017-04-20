@@ -1,134 +1,127 @@
 const fs = require('fs')
 const path = require('path')
 const H = require('highland')
-const normalizer = require('histograph-uri-normalizer')
+const R = require('ramda')
+const turf = {
+  lineSegment: require('@turf/line-segment'),
+  crosstrack: require('turf-crosstrack')
+}
+const IndexedGeo = require('indexed-geo')
 
 const toTitleCase = (str) => str.replace(/\w\S*/g, (str) =>
   str.charAt(0).toUpperCase() + str.substr(1).toLowerCase()
 )
 
-const tableName = 'objects'
-const yearThreshold = 5
-const types = {
-  address: 'st:Address',
-  street: 'st:Street',
-  in: 'st:in',
-  sameAs: 'st:sameAs'
+const YEAR_THRESHOLD = 5
+const MAX_DISTANCE = 25
+
+const streetsDataset = 'nyc-streets'
+const addressesDataset = 'building-inspector'
+
+function pointLineDistance (point, line) {
+  return 100
 }
 
-function getLinksQuery () {
-  return `
-    SELECT
-      id AS address_id,
-      streets->'id' AS street_id,
-      streets->'name' AS street_name,
-      streets->'dataset' AS street_dataset,
-      dataset AS address_dataset,
-      lower(validsince)::date AS validsince,
-      upper(validuntil)::date AS validuntil,
-      data AS address_data,
-      round(ST_Length(Geography(streets->>'shortest_line'))) AS line_length,
-      ST_AsGeoJSON(streets->>'shortest_line', 6)::jsonb AS shortest_line,
-      ST_AsGeoJSON(addresses.geometry, 6)::jsonb AS address_geometry
-    FROM (
-      SELECT *, (
-        SELECT
-          json_build_object(
-            'id', streets.id,
-            'dataset', streets.dataset,
-            'name', streets.name,
-            'shortest_line', ST_ShortestLine(addresses.geometry, streets.geometry)
-          )
-        FROM ${tableName} streets
-        WHERE dataset = 'nyc-streets' AND type = '${types.street}' AND
-          lower(streets.validsince) - interval '${yearThreshold} year' < lower(addresses.validsince) AND
-          upper(streets.validuntil) + interval '${yearThreshold} year' > upper(addresses.validuntil) AND
-          ST_Distance(Geography(addresses.geometry), Geography(streets.geometry)) < 20 -- meters
-        ORDER BY ST_Distance(addresses.geometry, streets.geometry)
-        -- ORDER BY addresses.geometry <-> streets.geometry
-        LIMIT 1
-      ) AS streets
-      FROM ${tableName} addresses
-      WHERE dataset = 'building-inspector' AND type = '${types.address}'
-    ) addresses;
-  `
+function objectsStream (getDir, dataset, step) {
+  const objectsFile = path.join(getDir(dataset, step), `${dataset}.objects.ndjson`)
+  return H(fs.createReadStream(objectsFile))
+    .split()
+    .compact()
+    .map(JSON.parse)
 }
 
-// TODO: move to external module!!!
-// Expand Space/Time URNs
-function expandURN (id) {
-  try {
-    id = normalizer.URNtoURL(id)
-  } catch (e) {
-    // TODO: use function from uri-normalizer
-    id = id.replace('urn:hgid:', '')
-  }
+function processAddresses (indexedGeo, dirs, tools, callback) {
+  console.log('      Finding closest line segments for each address')
 
-  return id
+  objectsStream(dirs.getDir, addressesDataset, 'transform')
+    .filter((object) => object.type === 'st:Address')
+    .filter((address) => address.geometry)
+    .map((address) => {
+      try {
+        const searchResults = indexedGeo.search(address.geometry)
+        const nearestResults = indexedGeo.nearest(address.geometry, 10)
+        const allResults = [...searchResults, ...nearestResults]
+
+        const closestResults = allResults
+          // TODO: filter year threshold
+          // .filter((segment) => )
+          .map((segment) => {
+            const distance = Math.round(turf.crosstrack(address.geometry, segment, 'kilometers') * 1000)
+            return {
+              segment,
+              distance
+            }
+          })
+          .filter((segment) => segment.distance < MAX_DISTANCE)
+          .sort((a, b) => a.distance - b.distance)
+
+        if (closestResults.length) {
+          const distance = closestResults[0].distance
+          const segment = closestResults[0].segment
+
+          const name = `${address.data.number} ${toTitleCase(segment.properties.name)}`
+          // const addressId = expandURN(row.address_id)
+          // const streetId = expandURN(row.street_id)
+          // const id = addressId.split('/')[1]
+
+          return {
+            name,
+            addressId: address.id,
+            streetId: segment.properties.id,
+            // validSince: row.validsince,
+            // validUntil: row.validuntil,
+            addressDataset: addressesDataset,
+            streetDataset: streetsDataset,
+            // streetName: row.street_name,
+            // addressData: row.address_data,
+            // lineLength: row.line_length,
+            // shortestLine: row.shortest_line,
+            // addressGeometry: row.address_geometry
+          }
+        } else {
+          // TODO: Nothing found! Log error to file
+        }
+      } catch (err) {
+        // TODO: log error!
+        console.log(err)
+      }
+    })
+    .compact()
+    .stopOnError(callback)
+    .map(JSON.stringify)
+    .intersperse('\n')
+    .pipe(fs.createWriteStream(path.join(dirs.current, 'inferred.ndjson')))
+    .on('finish', callback)
 }
 
 function infer (config, dirs, tools, callback) {
-  const postgis = require('spacetime-db-postgis')
+  objectsStream(dirs.getDir, streetsDataset, 'transform')
+    .map((street) => {
+      const feature = {
+        type: 'Feature',
+        properties: R.omit('geometry', street),
+        geometry: street.geometry
+      }
+      const segments = turf.lineSegment(feature)
+      return segments.features
+    })
+    .flatten()
+    .toArray((segments) => {
+      console.log('      Indexing street segments')
 
-  const logSize = 100
-  let found = 0
-  let count = 0
-  let lastTime = Date.now()
-
-  const query = getLinksQuery()
-  postgis.createQueryStream(query, (err, stream, queryStream) => {
-    if (err) {
-      callback(err)
-      return
-    }
-
-    H(queryStream)
-      .map((row) => {
-        count += 1
-        if (count % logSize === 0) {
-
-          var duration = Date.now() - lastTime
-          console.log(`      Processed ${count} addresses - ${Math.round(1 / ((duration / 1000) / 100))} per second`)
-          console.log(`        Found ${found} links`)
-          lastTime = Date.now()
-
-          found = 0
+      try {
+        const geojson = {
+          type: 'FeatureCollection',
+          features: segments
         }
+        const indexedGeo = IndexedGeo()
+        indexedGeo.index(geojson)
 
-        if (!(row.address_id && row.street_id)) {
-          return
-        }
-
-        found += 1
-
-        const address = row.address_data.number + ' ' + toTitleCase(row.street_name)
-        const addressId = expandURN(row.address_id)
-        const streetId = expandURN(row.street_id)
-        const id = addressId.split('/')[1]
-
-        return {
-          id,
-          address,
-          addressId,
-          streetId,
-          validSince: row.validsince,
-          validUntil: row.validuntil,
-          addressDataset: row.address_dataset,
-          streetDataset: row.street_dataset,
-          streetName: row.street_name,
-          addressData: row.address_data,
-          lineLength: row.line_length,
-          shortestLine: row.shortest_line,
-          addressGeometry: row.address_geometry
-        }
-      })
-      .compact()
-      .stopOnError(callback)
-      .map(JSON.stringify)
-      .intersperse('\n')
-      .pipe(fs.createWriteStream(path.join(dirs.current, 'inferred.ndjson')))
-      .on('end', callback)
-  })
+        processAddresses(indexedGeo, dirs, tools, callback)
+      } catch (err) {
+        callback(err)
+      }
+    })
 }
 
 function transform (config, dirs, tools, callback) {
@@ -173,11 +166,11 @@ function transform (config, dirs, tools, callback) {
         obj: {
           type: 'Feature',
           properties: {
-            address_id: row.addressId,
-            street_id: row.streetId,
-            street_name: row.streetName,
-            address_data: row.addressData,
-            line_length: row.lineLength
+            addressId: row.addressId,
+            streetId: row.streetId,
+            streetName: row.streetName,
+            addressData: row.addressData,
+            lineLength: row.lineLength
           },
           geometry: {
             type: 'GeometryCollection',

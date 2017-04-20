@@ -1,6 +1,6 @@
 {
   "name": "spacetime-etl-building-inspector-nyc-streets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "",
   "main": "building-inspector-nyc-streets.js",
   "devDependencies": {
@@ -18,8 +18,10 @@
   "author": "Bert Spaan",
   "license": "MIT",
   "dependencies": {
-    "highland": "^2.10.1",
-    "histograph-uri-normalizer": "github:histograph/uri-normalizer",
-    "spacetime-db-postgis": "github:nypl-spacetime/spacetime-db-postgis"
+    "@turf/line-segment": "^4.1.0",
+    "highland": "^2.10.5",
+    "indexed-geo": "github:nypl-spacetime/indexed-geo",
+    "ramda": "^0.23.0",
+    "turf-crosstrack": "github:nypl-spacetime/turf-crosstrack"
   }
 }
