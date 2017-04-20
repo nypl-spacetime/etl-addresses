@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const postgis = require('spacetime-db-postgis')
 const H = require('highland')
 const normalizer = require('histograph-uri-normalizer')
 
@@ -43,8 +42,10 @@ function getLinksQuery () {
         FROM ${tableName} streets
         WHERE dataset = 'nyc-streets' AND type = '${types.street}' AND
           lower(streets.validsince) - interval '${yearThreshold} year' < lower(addresses.validsince) AND
-          upper(streets.validuntil) + interval '${yearThreshold} year' > upper(addresses.validuntil)
-        ORDER BY addresses.geometry <-> streets.geometry
+          upper(streets.validuntil) + interval '${yearThreshold} year' > upper(addresses.validuntil) AND
+          ST_Distance(Geography(addresses.geometry), Geography(streets.geometry)) < 20 -- meters
+        ORDER BY ST_Distance(addresses.geometry, streets.geometry)
+        -- ORDER BY addresses.geometry <-> streets.geometry
         LIMIT 1
       ) AS streets
       FROM ${tableName} addresses
@@ -67,7 +68,10 @@ function expandURN (id) {
 }
 
 function infer (config, dirs, tools, callback) {
+  const postgis = require('spacetime-db-postgis')
+
   const logSize = 100
+  let found = 0
   let count = 0
   let lastTime = Date.now()
 
@@ -82,14 +86,20 @@ function infer (config, dirs, tools, callback) {
       .map((row) => {
         count += 1
         if (count % logSize === 0) {
+
           var duration = Date.now() - lastTime
           console.log(`      Processed ${count} addresses - ${Math.round(1 / ((duration / 1000) / 100))} per second`)
+          console.log(`        Found ${found} links`)
           lastTime = Date.now()
+
+          found = 0
         }
 
         if (!(row.address_id && row.street_id)) {
           return
         }
+
+        found += 1
 
         const address = row.address_data.number + ' ' + toTitleCase(row.street_name)
         const addressId = expandURN(row.address_id)
