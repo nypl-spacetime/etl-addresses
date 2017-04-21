@@ -1,134 +1,142 @@
 const fs = require('fs')
 const path = require('path')
 const H = require('highland')
-const normalizer = require('histograph-uri-normalizer')
+const R = require('ramda')
+const turf = {
+  lineSegment: require('@turf/line-segment'),
+  crosstrack: require('turf-crosstrack')
+}
+const edtf = require('edtf')
+const IndexedGeo = require('indexed-geo')
 
 const toTitleCase = (str) => str.replace(/\w\S*/g, (str) =>
   str.charAt(0).toUpperCase() + str.substr(1).toLowerCase()
 )
 
-const tableName = 'objects'
-const yearThreshold = 5
-const types = {
-  address: 'st:Address',
-  street: 'st:Street',
-  in: 'st:in',
-  sameAs: 'st:sameAs'
+const YEAR_THRESHOLD = 5
+const MAX_DISTANCE = 25
+
+const streetsDataset = 'nyc-streets'
+const addressesDataset = 'building-inspector'
+
+function getFullId (dataset, id) {
+  if (id.includes('/')) {
+    return id
+  }
+
+  return `${dataset}/${id}`
 }
 
-function getLinksQuery () {
-  return `
-    SELECT
-      id AS address_id,
-      streets->'id' AS street_id,
-      streets->'name' AS street_name,
-      streets->'dataset' AS street_dataset,
-      dataset AS address_dataset,
-      lower(validsince)::date AS validsince,
-      upper(validuntil)::date AS validuntil,
-      data AS address_data,
-      round(ST_Length(Geography(streets->>'shortest_line'))) AS line_length,
-      ST_AsGeoJSON(streets->>'shortest_line', 6)::jsonb AS shortest_line,
-      ST_AsGeoJSON(addresses.geometry, 6)::jsonb AS address_geometry
-    FROM (
-      SELECT *, (
-        SELECT
-          json_build_object(
-            'id', streets.id,
-            'dataset', streets.dataset,
-            'name', streets.name,
-            'shortest_line', ST_ShortestLine(addresses.geometry, streets.geometry)
-          )
-        FROM ${tableName} streets
-        WHERE dataset = 'nyc-streets' AND type = '${types.street}' AND
-          lower(streets.validsince) - interval '${yearThreshold} year' < lower(addresses.validsince) AND
-          upper(streets.validuntil) + interval '${yearThreshold} year' > upper(addresses.validuntil) AND
-          ST_Distance(Geography(addresses.geometry), Geography(streets.geometry)) < 20 -- meters
-        ORDER BY ST_Distance(addresses.geometry, streets.geometry)
-        -- ORDER BY addresses.geometry <-> streets.geometry
-        LIMIT 1
-      ) AS streets
-      FROM ${tableName} addresses
-      WHERE dataset = 'building-inspector' AND type = '${types.address}'
-    ) addresses;
-  `
-}
-
-// TODO: move to external module!!!
-// Expand Space/Time URNs
-function expandURN (id) {
-  try {
-    id = normalizer.URNtoURL(id)
-  } catch (e) {
-    // TODO: use function from uri-normalizer
-    id = id.replace('urn:hgid:', '')
+function getInternalId (id) {
+  if (id.includes('/')) {
+    return id.split('/')[1]
   }
 
   return id
 }
 
-function infer (config, dirs, tools, callback) {
-  const postgis = require('spacetime-db-postgis')
+function objectsStream (getDir, dataset, step) {
+  const objectsFile = path.join(getDir(dataset, step), `${dataset}.objects.ndjson`)
+  return H(fs.createReadStream(objectsFile))
+    .split()
+    .compact()
+    .map(JSON.parse)
+}
 
-  const logSize = 100
-  let found = 0
-  let count = 0
-  let lastTime = Date.now()
+function processAddresses (indexedGeo, dirs, tools, callback) {
+  console.log('      Finding closest line segments for each address')
 
-  const query = getLinksQuery()
-  postgis.createQueryStream(query, (err, stream, queryStream) => {
-    if (err) {
-      callback(err)
-      return
-    }
+  const MS_THRESHOLD = YEAR_THRESHOLD * 365 * 24 * 60 * 60 * 1000
 
-    H(queryStream)
-      .map((row) => {
-        count += 1
-        if (count % logSize === 0) {
+  objectsStream(dirs.getDir, addressesDataset, 'transform')
+    .filter((object) => object.type === 'st:Address')
+    .filter((address) => address.geometry)
+    .map((address) => {
+      const searchResults = indexedGeo.search(address.geometry)
+      const nearestResults = indexedGeo.nearest(address.geometry, 10)
+      const allResults = [...searchResults, ...nearestResults]
 
-          var duration = Date.now() - lastTime
-          console.log(`      Processed ${count} addresses - ${Math.round(1 / ((duration / 1000) / 100))} per second`)
-          console.log(`        Found ${found} links`)
-          lastTime = Date.now()
+      const closestResults = allResults
+        .filter((segment) => {
+          const addressSince = edtf(String(address.validSince)).min
+          const addressUntil = edtf(String(address.validUntil)).max
 
-          found = 0
-        }
+          const segmentSince = edtf(String(segment.properties.validSince)).min - MS_THRESHOLD
+          const segmentUntil = edtf(String(segment.properties.validUntil)).max + MS_THRESHOLD
 
-        if (!(row.address_id && row.street_id)) {
-          return
-        }
+          return segmentSince <= addressSince && segmentUntil >= addressUntil
+        })
+        .map((segment) => {
+          const distance = Math.round(turf.crosstrack(address.geometry, segment, 'kilometers') * 1000)
+          return {
+            segment,
+            distance
+          }
+        })
+        .filter((segment) => segment.distance < MAX_DISTANCE)
+        .sort((a, b) => a.distance - b.distance)
 
-        found += 1
+      if (closestResults.length) {
+        const distance = closestResults[0].distance
+        const segment = closestResults[0].segment
 
-        const address = row.address_data.number + ' ' + toTitleCase(row.street_name)
-        const addressId = expandURN(row.address_id)
-        const streetId = expandURN(row.street_id)
-        const id = addressId.split('/')[1]
+        const id = getInternalId(address.id)
+        const name = `${address.data.number} ${toTitleCase(segment.properties.name)}`
 
         return {
-          id,
-          address,
-          addressId,
-          streetId,
-          validSince: row.validsince,
-          validUntil: row.validuntil,
-          addressDataset: row.address_dataset,
-          streetDataset: row.street_dataset,
-          streetName: row.street_name,
-          addressData: row.address_data,
-          lineLength: row.line_length,
-          shortestLine: row.shortest_line,
-          addressGeometry: row.address_geometry
+          id: id,
+          name,
+          addressId: getFullId(addressesDataset, address.id),
+          streetId: getFullId(streetsDataset, segment.properties.id),
+          validSince: address.validSince,
+          validUntil: address.validUntil,
+          addressDataset: addressesDataset,
+          streetDataset: streetsDataset,
+          streetName: segment.properties.name,
+          addressData: address.data,
+          lineLength: distance,
+          addressGeometry: address.geometry
         }
-      })
-      .compact()
-      .stopOnError(callback)
-      .map(JSON.stringify)
-      .intersperse('\n')
-      .pipe(fs.createWriteStream(path.join(dirs.current, 'inferred.ndjson')))
-      .on('end', callback)
-  })
+      } else {
+        // TODO: log unmatched addresses!
+      }
+    })
+    .compact()
+    .stopOnError(callback)
+    .map(JSON.stringify)
+    .intersperse('\n')
+    .pipe(fs.createWriteStream(path.join(dirs.current, 'inferred.ndjson')))
+    .on('finish', callback)
+}
+
+function infer (config, dirs, tools, callback) {
+  objectsStream(dirs.getDir, streetsDataset, 'transform')
+    .map((street) => {
+      const feature = {
+        type: 'Feature',
+        properties: R.omit('geometry', street),
+        geometry: street.geometry
+      }
+      const segments = turf.lineSegment(feature)
+      return segments.features
+    })
+    .flatten()
+    .toArray((segments) => {
+      console.log('      Indexing street segments')
+
+      try {
+        const geojson = {
+          type: 'FeatureCollection',
+          features: segments
+        }
+        const indexedGeo = IndexedGeo()
+        indexedGeo.index(geojson)
+
+        processAddresses(indexedGeo, dirs, tools, callback)
+      } catch (err) {
+        callback(err)
+      }
+    })
 }
 
 function transform (config, dirs, tools, callback) {
@@ -136,36 +144,36 @@ function transform (config, dirs, tools, callback) {
     .split()
     .compact()
     .map(JSON.parse)
-    .map((row) => ([
+    .map((address) => ([
       {
         type: 'object',
         obj: {
-          id: row.id,
-          name: row.address,
-          type: types.address,
-          validSince: new Date(row.validSince).getFullYear(),
-          validUntil: new Date(row.validUntil).getFullYear(),
-          data: Object.assign(row.addressData, {
-            addressId: row.addressId,
-            streetId: row.streetId
+          id: address.id,
+          name: address.name,
+          type: 'st:Address',
+          validSince: address.validSince,
+          validUntil: address.validUntil,
+          data: Object.assign(address.addressData, {
+            addressId: address.addressId,
+            streetId: address.streetId
           }),
-          geometry: row.addressGeometry
+          geometry: address.addressGeometry
         }
       },
       {
         type: 'relation',
         obj: {
-          from: row.addressId,
-          to: row.streetId,
-          type: types.in
+          from: address.addressId,
+          to: address.streetId,
+          type: 'st:in'
         }
       },
       {
         type: 'relation',
         obj: {
-          from: row.id,
-          to: row.addressId,
-          type: types.sameAs
+          from: address.id,
+          to: address.addressId,
+          type: 'st:sameAs'
         }
       },
       {
@@ -173,19 +181,13 @@ function transform (config, dirs, tools, callback) {
         obj: {
           type: 'Feature',
           properties: {
-            address_id: row.addressId,
-            street_id: row.streetId,
-            street_name: row.streetName,
-            address_data: row.addressData,
-            line_length: row.lineLength
+            addressId: address.addressId,
+            streetId: address.streetId,
+            streetName: address.streetName,
+            addressData: address.addressData,
+            lineLength: address.lineLength
           },
-          geometry: {
-            type: 'GeometryCollection',
-            geometries: [
-              row.shortestLine,
-              row.addressGeometry
-            ]
-          }
+          geometry: address.addressGeometry
         }
       }
     ]))
