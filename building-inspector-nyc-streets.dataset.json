@@ -1,8 +1,8 @@
 {
   "id": "building-inspector-nyc-streets",
-  "title": "Building Inspector addresses with street names",
+  "title": "Building Inspector house numbers and street names",
   "license": "CC0",
-  "description": "This module uses PostGIS to find the nearest historical street for Building Inspector addresses - for details, see <a href='http://bertspaan.nl/west-village/'>http://bertspaan.nl/west-village/</a>",
+  "description": "This ETL module finds the nearest historical street for house numbers from Building Inspector",
   "author": "Bert Spaan",
   "website": "http://spacetime.nypl.org/",
   "dependsOn": [

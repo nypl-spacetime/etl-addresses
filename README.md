@@ -1,6 +1,6 @@
-# NYC Space/Time Directory ETL module: Building Inspector addresses with street names
+# NYC Space/Time Directory ETL module: Building Inspector house numbers and street names
 
-[ETL](https://en.wikipedia.org/wiki/Extract,_transform,_load) module for NYPL's [NYC Space/Time Direcory](http://spacetime.nypl.org/). This Node.js module downloads, parses, and/or transforms Building Inspector addresses with street names data, and creates a NYC Space/Time Directory dataset.
+[ETL](https://en.wikipedia.org/wiki/Extract,_transform,_load) module for NYPL's [NYC Space/Time Direcory](http://spacetime.nypl.org/). This Node.js module downloads, parses, and/or transforms Building Inspector house numbers and street names data, and creates a NYC Space/Time Directory dataset.
 
 ## Details
 
@@ -14,12 +14,12 @@
 
 <tr>
 <td>Title</td>
-<td>Building Inspector addresses with street names</td>
+<td>Building Inspector house numbers and street names</td>
 </tr>
 
 <tr>
 <td>Description</td>
-<td>This module uses PostGIS to find the nearest historical street for Building Inspector addresses - for details, see <a href='http://bertspaan.nl/west-village/'>http://bertspaan.nl/west-village/</a></td>
+<td>This ETL module finds the nearest historical street for house numbers from Building Inspector</td>
 </tr>
 
 <tr>
