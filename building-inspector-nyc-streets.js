@@ -13,7 +13,7 @@ const toTitleCase = (str) => str.replace(/\w\S*/g, (str) =>
   str.charAt(0).toUpperCase() + str.substr(1).toLowerCase()
 )
 
-const YEAR_THRESHOLD = 5
+const YEAR_THRESHOLD = 15
 const MAX_DISTANCE = 25
 
 const streetsDataset = 'nyc-streets'
@@ -111,6 +111,7 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
 
 function infer (config, dirs, tools, callback) {
   objectsStream(dirs.getDir, streetsDataset, 'transform')
+    .filter((street) => street.geometry)
     .map((street) => {
       const feature = {
         type: 'Feature',
