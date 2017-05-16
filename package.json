@@ -1,6 +1,6 @@
 {
   "name": "spacetime-etl-building-inspector-nyc-streets",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "This ETL module finds the nearest historical street for house numbers from Building Inspector",
   "main": "building-inspector-nyc-streets.js",
   "devDependencies": {
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "http://github.com/nypl-spacetime/etl-nyc-churches.git"
+    "url": "http://github.com/nypl-spacetime/etl-building-inspector-nyc-streets.git"
   },
   "scripts": {
     "test": "standard",

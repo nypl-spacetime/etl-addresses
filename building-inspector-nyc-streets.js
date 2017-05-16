@@ -48,7 +48,18 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
 
   const MS_THRESHOLD = YEAR_THRESHOLD * 365 * 24 * 60 * 60 * 1000
 
+  const addressesEtlResults = require(path.join(dirs.getDir(addressesDataset, 'transform'), 'etl-results.json'))
+  const total = addressesEtlResults.stats.objects.count
+
+  let count = 0
   objectsStream(dirs.getDir, addressesDataset, 'transform')
+    .map((object) => {
+      count++
+      if (count % 1000 === 0) {
+        console.log(`        Processed ${count} / ${total} addresses (${Math.round(count / total * 100)}%)`)
+      }
+      return object
+    })
     .filter((object) => object.type === 'st:Address')
     .filter((address) => address.geometry)
     .map((address) => {
@@ -132,6 +143,8 @@ function infer (config, dirs, tools, callback) {
         }
         const indexedGeo = IndexedGeo()
         indexedGeo.index(geojson)
+
+        console.log('        Done!')
 
         processAddresses(indexedGeo, dirs, tools, callback)
       } catch (err) {
