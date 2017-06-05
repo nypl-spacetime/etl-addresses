@@ -6,12 +6,8 @@ const turf = {
   lineSegment: require('@turf/line-segment'),
   crosstrack: require('turf-crosstrack')
 }
-const edtf = require('edtf')
 const IndexedGeo = require('indexed-geo')
-
-const toTitleCase = (str) => str.replace(/\w\S*/g, (str) =>
-  str.charAt(0).toUpperCase() + str.substr(1).toLowerCase()
-)
+const fuzzyDates = require('fuzzy-dates')
 
 const YEAR_THRESHOLD = 15
 const MAX_DISTANCE = 25
@@ -69,11 +65,11 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
 
       const closestResults = allResults
         .filter((segment) => {
-          const addressSince = edtf(String(address.validSince)).min
-          const addressUntil = edtf(String(address.validUntil)).max
+          const addressSince = new Date(fuzzyDates.convert(address.validSince)[0]).getTime()
+          const addressUntil = new Date(fuzzyDates.convert(address.validUntil)[1]).getTime()
 
-          const segmentSince = edtf(String(segment.properties.validSince)).min - MS_THRESHOLD
-          const segmentUntil = edtf(String(segment.properties.validUntil)).max + MS_THRESHOLD
+          const segmentSince = new Date(fuzzyDates.convert(segment.properties.validSince)[0]).getTime() - MS_THRESHOLD
+          const segmentUntil = new Date(fuzzyDates.convert(segment.properties.validUntil)[1]).getTime() + MS_THRESHOLD
 
           return segmentSince <= addressSince && segmentUntil >= addressUntil
         })
@@ -92,7 +88,7 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
         const segment = closestResults[0].segment
 
         const id = getInternalId(address.id)
-        const name = `${address.data.number} ${toTitleCase(segment.properties.name)}`
+        const name = `${address.data.number} ${segment.properties.name}`
 
         return {
           id: id,
