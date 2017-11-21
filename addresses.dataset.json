@@ -1,0 +1,71 @@
+{
+  "id": "addresses",
+  "title": "Locations of historical addresses, extracted from NYC fire insurance maps",
+  "license": "CC0",
+  "description": "This ETL module finds the nearest historical street for house numbers from Building Inspector",
+  "sources": [
+    {
+      "title": "Historical street data from NYC Space/Time Directory",
+      "path": "http://spacetime.nypl.org/#data-nyc-streets"
+    },
+    {
+      "title": "Building Inspector house number data from NYC Space/Time Directory",
+      "path": "http://spacetime.nypl.org/#data-building-inspector"
+    }
+  ],
+  "contributors": [
+    {
+      "title": "Bert Spaan",
+      "role": "author"
+    }
+  ],
+  "homepage": "https://github.com/nypl-spacetime/tutorial-historical-addresses",
+  "dependsOn": [
+    "building-inspector.transform",
+    "nyc-streets.transform"
+  ],
+  "fields": {
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "sheetId",
+      "layerId",
+      "mapId",
+      "addressId",
+      "streetId",
+      "borough",
+      "number"
+    ],
+    "properties": {
+      "sheetId": {
+        "type": "integer",
+        "description": ""
+      },
+      "layerId": {
+        "type": "integer",
+        "description": ""
+      },
+      "mapId": {
+        "type": "integer",
+        "description": ""
+      },
+      "number": {
+        "type": "string",
+        "description": ""
+      },
+      "borough": {
+        "type": "string",
+        "description": ""
+      },
+      "addressId": {
+        "type": "string",
+        "description": ""
+      },
+      "streetId": {
+        "type": "string",
+        "description": ""
+      }
+    }
+  }
+}

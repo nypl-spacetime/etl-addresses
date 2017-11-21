@@ -12,8 +12,10 @@ const fuzzyDates = require('fuzzy-dates')
 const YEAR_THRESHOLD = 15
 const MAX_DISTANCE = 25
 
-const streetsDataset = 'nyc-streets'
-const addressesDataset = 'building-inspector'
+const DATASETS = {
+  streets: 'nyc-streets',
+  houseNumbers: 'building-inspector'
+}
 
 function getFullId (dataset, id) {
   if (id.includes('/')) {
@@ -44,15 +46,12 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
 
   const MS_THRESHOLD = YEAR_THRESHOLD * 365 * 24 * 60 * 60 * 1000
 
-  const addressesEtlResults = require(path.join(dirs.getDir(addressesDataset, 'transform'), 'etl-results.json'))
-  const total = addressesEtlResults.stats.objects.count
-
   let count = 0
-  objectsStream(dirs.getDir, addressesDataset, 'transform')
+  objectsStream(dirs.getDir, DATASETS.houseNumbers, 'transform')
     .map((object) => {
       count++
-      if (count % 1000 === 0) {
-        console.log(`        Processed ${count} / ${total} addresses (${Math.round(count / total * 100)}%)`)
+      if (count % 10000 === 0) {
+        console.log(`        Processed ${count}`)
       }
       return object
     })
@@ -93,12 +92,10 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
         return {
           id: id,
           name,
-          addressId: getFullId(addressesDataset, address.id),
-          streetId: getFullId(streetsDataset, segment.properties.id),
+          addressId: getFullId(DATASETS.houseNumbers, address.id),
+          streetId: getFullId(DATASETS.streets, segment.properties.id),
           validSince: address.validSince,
           validUntil: address.validUntil,
-          addressDataset: addressesDataset,
-          streetDataset: streetsDataset,
           streetName: segment.properties.name,
           addressData: address.data,
           lineLength: distance,
@@ -117,7 +114,7 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
 }
 
 function infer (config, dirs, tools, callback) {
-  objectsStream(dirs.getDir, streetsDataset, 'transform')
+  objectsStream(dirs.getDir, DATASETS.streets, 'transform')
     .filter((street) => street.geometry)
     .map((street) => {
       const feature = {
@@ -125,11 +122,17 @@ function infer (config, dirs, tools, callback) {
         properties: R.omit('geometry', street),
         geometry: street.geometry
       }
+
       const segments = turf.lineSegment(feature)
       return segments.features
     })
     .flatten()
     .toArray((segments) => {
+      if (!segments.length) {
+        callback('No streets with geometries found - this is very wrong!')
+        return
+      }
+
       console.log('      Indexing street segments')
 
       try {
@@ -138,6 +141,7 @@ function infer (config, dirs, tools, callback) {
           features: segments
         }
         const indexedGeo = IndexedGeo()
+
         indexedGeo.index(geojson)
 
         console.log('        Done!')
