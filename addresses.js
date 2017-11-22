@@ -108,7 +108,8 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
         return {
           error: `Can't find street within ${MAX_DISTANCE} meters and ${YEAR_THRESHOLD} years`,
           addressId,
-          addressData: address.data
+          addressData: address.data,
+          addressGeometry: address.geometry
         }
       }
     })
@@ -165,10 +166,8 @@ function transform (config, dirs, tools, callback) {
     .split()
     .compact()
     .map(JSON.parse)
-    .map((line) => {
-      if (line.streetId) {
-        const address = line
-
+    .map((address) => {
+      if (address.streetId) {
         return [
           {
             type: 'object',
@@ -204,22 +203,24 @@ function transform (config, dirs, tools, callback) {
           {
             type: 'log',
             obj: {
-              type: 'Feature',
-              properties: {
-                addressId: address.addressId,
-                streetId: address.streetId,
-                streetName: address.streetName,
-                addressData: address.addressData,
-                lineLength: address.lineLength
-              },
+              addressId: address.addressId,
+              streetId: address.streetId,
+              streetName: address.streetName,
+              addressData: address.addressData,
+              lineLength: address.lineLength,
               geometry: address.addressGeometry
             }
           }
         ]
-      } else if (line.error) {
+      } else if (address.error) {
         return {
           type: 'log',
-          obj: line
+          obj: {
+            error: `Can't find street within ${MAX_DISTANCE} meters and ${YEAR_THRESHOLD} years`,
+            addressId: address.addressId,
+            addressData: address.addressData,
+            geometry: address.addressGeometry
+          }
         }
       }
     })
