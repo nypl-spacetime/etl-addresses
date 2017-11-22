@@ -42,21 +42,21 @@ function objectsStream (getDir, dataset, step) {
 }
 
 function processAddresses (indexedGeo, dirs, tools, callback) {
-  console.log('      Finding closest line segments for each address')
+  console.log('      Finding closest line segments for each house number')
 
   const MS_THRESHOLD = YEAR_THRESHOLD * 365 * 24 * 60 * 60 * 1000
 
   let count = 0
   objectsStream(dirs.getDir, DATASETS.houseNumbers, 'transform')
-    .map((object) => {
-      count++
-      if (count % 10000 === 0) {
-        console.log(`        Processed ${count}`)
-      }
-      return object
-    })
     .filter((object) => object.type === 'st:Address')
     .filter((address) => address.geometry)
+    .map((address) => {
+      count++
+      if (count % 10000 === 0) {
+        console.log(`        Processed ${count} house numbers`)
+      }
+      return address
+    })
     .map((address) => {
       const searchResults = indexedGeo.search(address.geometry)
       const nearestResults = indexedGeo.nearest(address.geometry, 10)
@@ -82,18 +82,21 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
         .filter((segment) => segment.distance < MAX_DISTANCE)
         .sort((a, b) => a.distance - b.distance)
 
+      const id = getInternalId(address.id)
+      const addressId = getFullId(DATASETS.houseNumbers, address.id)
+
       if (closestResults.length) {
         const distance = closestResults[0].distance
         const segment = closestResults[0].segment
+        const streetId = getFullId(DATASETS.streets, segment.properties.id)
 
-        const id = getInternalId(address.id)
         const name = `${address.data.number} ${segment.properties.name}`
 
         return {
-          id: id,
+          id,
           name,
-          addressId: getFullId(DATASETS.houseNumbers, address.id),
-          streetId: getFullId(DATASETS.streets, segment.properties.id),
+          addressId,
+          streetId,
           validSince: address.validSince,
           validUntil: address.validUntil,
           streetName: segment.properties.name,
@@ -102,7 +105,11 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
           addressGeometry: address.geometry
         }
       } else {
-        // TODO: log unmatched addresses!
+        return {
+          error: `Can't find street within ${MAX_DISTANCE} meters and ${YEAR_THRESHOLD} years`,
+          addressId,
+          addressData: address.data
+        }
       }
     })
     .compact()
@@ -158,53 +165,64 @@ function transform (config, dirs, tools, callback) {
     .split()
     .compact()
     .map(JSON.parse)
-    .map((address) => ([
-      {
-        type: 'object',
-        obj: {
-          id: address.id,
-          name: address.name,
-          type: 'st:Address',
-          validSince: address.validSince,
-          validUntil: address.validUntil,
-          data: Object.assign(address.addressData, {
-            addressId: address.addressId,
-            streetId: address.streetId
-          }),
-          geometry: address.addressGeometry
-        }
-      },
-      {
-        type: 'relation',
-        obj: {
-          from: address.addressId,
-          to: address.streetId,
-          type: 'st:in'
-        }
-      },
-      {
-        type: 'relation',
-        obj: {
-          from: address.id,
-          to: address.addressId,
-          type: 'st:sameAs'
-        }
-      },
-      {
-        type: 'log',
-        obj: {
-          type: 'Feature',
-          properties: {
-            addressId: address.addressId,
-            streetId: address.streetId,
-            streetName: address.streetName,
-            addressData: address.addressData,
-            lineLength: address.lineLength
+    .map((line) => {
+      if (line.streetId) {
+        const address = line
+
+        return [
+          {
+            type: 'object',
+            obj: {
+              id: address.id,
+              name: address.name,
+              type: 'st:Address',
+              validSince: address.validSince,
+              validUntil: address.validUntil,
+              data: Object.assign(address.addressData, {
+                addressId: address.addressId,
+                streetId: address.streetId
+              }),
+              geometry: address.addressGeometry
+            }
           },
-          geometry: address.addressGeometry
+          {
+            type: 'relation',
+            obj: {
+              from: address.addressId,
+              to: address.streetId,
+              type: 'st:in'
+            }
+          },
+          {
+            type: 'relation',
+            obj: {
+              from: address.id,
+              to: address.addressId,
+              type: 'st:sameAs'
+            }
+          },
+          {
+            type: 'log',
+            obj: {
+              type: 'Feature',
+              properties: {
+                addressId: address.addressId,
+                streetId: address.streetId,
+                streetName: address.streetName,
+                addressData: address.addressData,
+                lineLength: address.lineLength
+              },
+              geometry: address.addressGeometry
+            }
+          }
+        ]
+      } else if (line.error) {
+        return {
+          type: 'log',
+          obj: line
         }
       }
-    ]))
+    })
     .stopOnError(callback)
     .flatten()
     .map(H.curry(tools.writer.writeObject))
