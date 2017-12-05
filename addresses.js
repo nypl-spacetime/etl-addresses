@@ -49,23 +49,23 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
   let count = 0
   objectsStream(dirs.getDir, DATASETS.houseNumbers, 'transform')
     .filter((object) => object.type === 'st:Address')
-    .filter((address) => address.geometry)
-    .map((address) => {
+    .filter((houseNumber) => houseNumber.geometry)
+    .map((houseNumber) => {
       count++
       if (count % 10000 === 0) {
         console.log(`        Processed ${count} house numbers`)
       }
-      return address
+      return houseNumber
     })
-    .map((address) => {
-      const searchResults = indexedGeo.search(address.geometry)
-      const nearestResults = indexedGeo.nearest(address.geometry, 10)
+    .map((houseNumber) => {
+      const searchResults = indexedGeo.search(houseNumber.geometry)
+      const nearestResults = indexedGeo.nearest(houseNumber.geometry, 10)
       const allResults = [...searchResults, ...nearestResults]
 
       const closestResults = allResults
         .filter((segment) => {
-          const addressSince = new Date(fuzzyDates.convert(address.validSince)[0]).getTime()
-          const addressUntil = new Date(fuzzyDates.convert(address.validUntil)[1]).getTime()
+          const addressSince = new Date(fuzzyDates.convert(houseNumber.validSince)[0]).getTime()
+          const addressUntil = new Date(fuzzyDates.convert(houseNumber.validUntil)[1]).getTime()
 
           const segmentSince = new Date(fuzzyDates.convert(segment.properties.validSince)[0]).getTime() - MS_THRESHOLD
           const segmentUntil = new Date(fuzzyDates.convert(segment.properties.validUntil)[1]).getTime() + MS_THRESHOLD
@@ -73,7 +73,7 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
           return segmentSince <= addressSince && segmentUntil >= addressUntil
         })
         .map((segment) => {
-          const distance = Math.round(turf.crosstrack(address.geometry, segment, 'kilometers') * 1000)
+          const distance = Math.round(turf.crosstrack(houseNumber.geometry, segment, 'kilometers') * 1000)
           return {
             segment,
             distance
@@ -82,34 +82,34 @@ function processAddresses (indexedGeo, dirs, tools, callback) {
         .filter((segment) => segment.distance < MAX_DISTANCE)
         .sort((a, b) => a.distance - b.distance)
 
-      const id = getInternalId(address.id)
-      const addressId = getFullId(DATASETS.houseNumbers, address.id)
+      const id = getInternalId(houseNumber.id)
+      const houseNumberId = getFullId(DATASETS.houseNumbers, houseNumber.id)
 
       if (closestResults.length) {
         const distance = closestResults[0].distance
         const segment = closestResults[0].segment
         const streetId = getFullId(DATASETS.streets, segment.properties.id)
 
-        const name = `${address.data.number} ${segment.properties.name}`
+        const name = `${houseNumber.data.number} ${segment.properties.name}`
 
         return {
           id,
           name,
-          addressId,
+          houseNumberId,
           streetId,
-          validSince: address.validSince,
-          validUntil: address.validUntil,
+          validSince: houseNumber.validSince,
+          validUntil: houseNumber.validUntil,
           streetName: segment.properties.name,
-          addressData: address.data,
+          addressData: houseNumber.data,
           lineLength: distance,
-          addressGeometry: address.geometry
+          addressGeometry: houseNumber.geometry
         }
       } else {
         return {
           error: `Can't find street within ${MAX_DISTANCE} meters and ${YEAR_THRESHOLD} years`,
-          addressId,
-          addressData: address.data,
-          addressGeometry: address.geometry
+          houseNumberId,
+          addressData: houseNumber.data,
+          addressGeometry: houseNumber.geometry
         }
       }
     })
@@ -178,7 +178,7 @@ function transform (config, dirs, tools, callback) {
               validSince: address.validSince,
               validUntil: address.validUntil,
               data: Object.assign(address.addressData, {
-                addressId: address.addressId,
+                houseNumberId: address.houseNumberId,
                 streetId: address.streetId
               }),
               geometry: address.addressGeometry
@@ -187,7 +187,7 @@ function transform (config, dirs, tools, callback) {
           {
             type: 'relation',
             obj: {
-              from: address.addressId,
+              from: address.houseNumberId,
               to: address.streetId,
               type: 'st:in'
             }
@@ -196,14 +196,14 @@ function transform (config, dirs, tools, callback) {
             type: 'relation',
             obj: {
               from: address.id,
-              to: address.addressId,
+              to: address.houseNumberId,
               type: 'st:sameAs'
             }
           },
           {
             type: 'log',
             obj: {
-              addressId: address.addressId,
+              houseNumberId: address.houseNumberId,
               streetId: address.streetId,
               streetName: address.streetName,
               addressData: address.addressData,
@@ -217,7 +217,7 @@ function transform (config, dirs, tools, callback) {
           type: 'log',
           obj: {
             error: `Can't find street within ${MAX_DISTANCE} meters and ${YEAR_THRESHOLD} years`,
-            addressId: address.addressId,
+            houseNumberId: address.houseNumberId,
             addressData: address.addressData,
             geometry: address.addressGeometry
           }

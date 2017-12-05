@@ -65,7 +65,7 @@ The dataset created by this ETL module’s `transform` step can be found in the 
     "sheetId",
     "layerId",
     "mapId",
-    "addressId",
+    "houseNumberId",
     "streetId",
     "borough",
     "number"
@@ -73,31 +73,31 @@ The dataset created by this ETL module’s `transform` step can be found in the 
   "properties": {
     "sheetId": {
       "type": "integer",
-      "description": ""
+      "description": "Identifier of Building Inspector Sheet from which this address was transcribed"
     },
     "layerId": {
       "type": "integer",
-      "description": ""
+      "description": "Identifier of Map Warper Layer from which this address was transcribed"
     },
     "mapId": {
       "type": "integer",
-      "description": ""
+      "description": "Identifier of Map Warper Map from which this address was transcribed"
     },
     "number": {
       "type": "string",
-      "description": ""
+      "description": "House number of address"
     },
     "borough": {
       "type": "string",
-      "description": ""
+      "description": "Borough of address"
     },
-    "addressId": {
+    "houseNumberId": {
       "type": "string",
-      "description": ""
+      "description": "Identifier of house number in Building Inspector dataset"
     },
     "streetId": {
       "type": "string",
-      "description": ""
+      "description": "Identifier of street in Historical Streets dataset"
     }
   }
 }

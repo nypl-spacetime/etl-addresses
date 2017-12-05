@@ -1,6 +1,6 @@
 {
   "name": "spacetime-etl-addresses",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "This ETL module finds the nearest historical street for house numbers from Building Inspector",
   "main": "addresses.js",
   "devDependencies": {
